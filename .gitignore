@@ -1,0 +1,7 @@
+*.py[cod]
+.tox/
+env/
+*.egg-info/
+gunicorn.pid
+gunicorn.log
+.idea/
