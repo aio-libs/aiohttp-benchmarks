@@ -1,5 +1,10 @@
-# could do more here for greater performance but that wouldn't help the test
-workers = 1
+import multiprocessing
+import os
+
+if os.environ.get('TRAVIS') == 'true':
+    workers = 2
+else:
+    workers = max(multiprocessing.cpu_count(), 2)
 
 bind = '0.0.0.0:8000'
 keepalive = 120

@@ -23,7 +23,6 @@ from .views import (
 )
 
 CONNECTION_ORM = os.getenv('CONNECTION', 'ORM').upper() == 'ORM'
-print('connection:', 'ORM' if CONNECTION_ORM else 'RAW')
 
 THIS_DIR = Path(__file__).parent
 
