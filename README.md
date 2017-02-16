@@ -11,6 +11,7 @@ export PGPASS=...
 export PGUSER=...
 ./recreate_db.py
 tox
+./process.py
 ```
 
 ## Results as of (16-02-17)
