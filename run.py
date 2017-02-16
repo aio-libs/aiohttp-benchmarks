@@ -22,7 +22,8 @@ COMMAND_TEMPLATE = (
     '"http://localhost:8000{url}"'
 )
 
-DURATION = 15
+DURATION = 10
+# DURATION = 1
 urls = [
     '/db',
     '/queries/{queries}',
@@ -35,11 +36,8 @@ if CONNECTION_ORM:
         '/plaintext',
     ]
 
-concurrency_steps = [32, 64, 128, 256]
-# concurrency_steps = [32, 64]
-query_steps = [5, 10, 20]
 results = []
-python_version = '{}.{}.{}'.format(sys.version_info.major, sys.version_info.minor, sys.version_info.micro)
+python_version = '{}{}'.format(sys.version_info.major, sys.version_info.minor)
 aiohttp_version = aiohttp.__version__
 print('Python {}, aiohttp {}'.format(python_version, aiohttp_version))
 
@@ -48,46 +46,53 @@ server = subprocess.Popen(['gunicorn', 'app.gunicorn:app', '-c', 'gunicorn_conf.
 try:
     print('gunicorn started, waiting for it to be ready...')
     time.sleep(2)
-    for url_ in urls:
-        if '{queries}' in url_:
-            query_steps_ = query_steps
+    for url in urls:
+        if '{queries}' in url:
+            query_steps = [5, 10, 20]
+            concurrency_steps = [256] * len(query_steps)
         else:
-            query_steps_ = ['-']
+            concurrency_steps = [32, 64, 128, 256]
+            # concurrency_steps = [32, 64]
+            query_steps = ['-'] * len(concurrency_steps)
 
-        for queries in query_steps_:
-            url = url_.format(queries=queries)
-            for concurrency in concurrency_steps:
+        for queries, concurrency in zip(query_steps, concurrency_steps):
+            url_ = url.format(queries=queries)
 
-                command = COMMAND_TEMPLATE.format(concurrency=concurrency, duration=DURATION, threads=8, url=url)
+            command = COMMAND_TEMPLATE.format(concurrency=concurrency, duration=DURATION, threads=8, url=url_)
 
-                db = '-' if url in {'/json', '/plaintext'} else ('orm' if CONNECTION_ORM else 'raw')
-                print('running wrk for {}, concurrency {}, db {}...'.format(url, concurrency, db))
-                p = subprocess.run(shlex.split(command), stdout=subprocess.PIPE)
-                assert p.returncode == 0, 'bad exit code for work: {}'.format(p.returncode)
-                stdout = p.stdout.decode()
+            db = '-' if url in {'/json', '/plaintext'} else ('orm' if CONNECTION_ORM else 'raw')
+            print('\nrunning wrk for {}, concurrency: {}, db: {}...'.format(url_, concurrency, db))
+            p = subprocess.run(shlex.split(command), stdout=subprocess.PIPE)
+            assert p.returncode == 0, 'bad exit code for work: {}'.format(p.returncode)
+            stdout = p.stdout.decode()
+            print(stdout.strip('\n '))
 
-                request_rate = float(re.search('Requests/sec: *([\d.]+)', stdout).groups()[0])
-                print('request rate: {:0.0f}'.format(request_rate))
+            request_rate = float(re.search('Requests/sec: *([\d.]+)', stdout).groups()[0])
+            print('request rate: {:0.2f}'.format(request_rate))
 
-                latency = float(re.search(r'Latency *([\d.]+)ms', stdout).groups()[0])
-                print('latency:      {:0.0f}'.format(latency))
+            latency, s_ms = re.search(r'Latency *([\d.]+)(m?s)', stdout).groups()
+            latency = float(latency)
+            if s_ms == 's':
+                latency *= 1000
+            print('latency:      {:0.2f}'.format(latency))
 
-                m = re.search('Non-2xx or 3xx responses: *(\d+)', stdout)
-                errors = int(m.groups()[0]) if m else 0
-                print('errors:       {}'.format(errors))
+            m = re.search('Non-2xx or 3xx responses: *(\d+)', stdout)
+            errors = int(m.groups()[0]) if m else 0
+            print('errors:       {}'.format(errors))
 
-                results.append({
-                    'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%s'),
-                    'python': python_version,
-                    'aiohttp': aiohttp_version,
-                    'concurrency': concurrency,
-                    'queries': queries,
-                    'url': url,
-                    'db': db,
-                    'errors': errors,
-                    'request_rate': request_rate,
-                    'latency': latency,
-                })
+            results.append({
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%s'),
+                'python': python_version,
+                'aiohttp': aiohttp_version,
+                'concurrency': concurrency,
+                'queries': queries,
+                'url': url,
+                'db': db,
+                'errors': errors,
+                'request_rate': request_rate,
+                'latency': latency,
+            })
+
 finally:
     assert server.returncode is None, 'gunicorn server should still be running, check gunicorn.log'
     server.terminate()
