@@ -1,7 +1,7 @@
 # aiohttp benchmarks
 
 
-Usage
+## Usage
 
 ```shell
 virtualenv -p `which python3.6` env
@@ -19,7 +19,7 @@ python process.py
 
 **With a remote machine:**
 
-(this assumes you have a pem file `benchmarks.pem` in the current directory.)
+(this assumes you have a pem file `benchmarks.pem` for connecting to the remote host in the current directory.)
 
 ```shell
 export REMOTE=true
@@ -38,7 +38,7 @@ python run.py
 python process.py
 ```
 
-## Results as of (2017-02-18) - remote server
+## Results - remote server
 
 Tests were run between aws `t2.medium` in `eu-west` running the standard ubuntu 16.04 ami
 and my desktop in London with a 20Mb up/down dedicated EFM line.
@@ -55,7 +55,7 @@ TODO
 TODO
 ```
 
-## Results as of (2017-02-16) - local server
+## Results - local server
 
 ### Comparing aiohttp versions
 

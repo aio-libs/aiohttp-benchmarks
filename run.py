@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3.6
 import itertools
 import json
 import logging
@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-RUN_PREFIX = ''
 REMOTE = os.getenv('REMOTE').upper() in ('1', 'TRUE')
 if REMOTE:
     SSH_COMMAND = 'ssh', '-i', 'benchmarks.pem', os.environ['SSH_ADDRESS']
@@ -27,7 +26,6 @@ if REMOTE:
 else:
     SSH_COMMAND = 'vagrant', 'ssh', '-c'
     SERVER = 'http://localhost:8080'
-    RUN_PREFIX = 'cd /vagrant && '
     print('Running on vagrant...')
 
 print(f'ssh command: {SSH_COMMAND}')
@@ -35,8 +33,7 @@ print(f'server:      {SERVER}')
 
 
 INSTALL_COMMAND = '~/env3{py_v}/bin/pip install "{package}"'
-RUN_COMMAND = RUN_PREFIX + 'sudo ~/env3{py_v}/bin/gunicorn app.gunicorn:app -c gunicorn_conf.py'
-KILL_COMMAND = 'sudo killall gunicorn'
+RUN_COMMAND = 'sudo ~/env3{py_v}/bin/gunicorn app.gunicorn:app -c gunicorn_conf.py'
 
 AIOH_VERSIONS = {
     '1.2': 'aiohttp>=1.2,<1.3',
@@ -50,6 +47,13 @@ COMMAND_TEMPLATE = (
     '-d {duration} -c {concurrency} --timeout 8 -t {threads} '
     '"{server}{url}"'
 )
+
+
+def run_remote(*commands, check=False):
+    c = SSH_COMMAND + commands
+    logger.info(f'running  %s', c)
+    subprocess.run(c, check=check)
+
 
 DURATION = 10
 # DURATION = 3
@@ -85,52 +89,55 @@ for py_v, aiohttp_v, connection, url, queries, conc in cases:
     url_ = url.format(q=queries, c=connection)
 
     logger.info('===============================================================================')
-    logger.info(f'==== Python 3.{py_v}, aiohttp {aiohttp_v}, conn {connection}, url {url_}, concurrency {conc}')
+    logger.info(f'==== Python 3.{py_v}, aiohttp {aiohttp_v}, url {url_}, concurrency {conc}')
     logger.info('===============================================================================')
 
     versions = py_v, aiohttp_v
     if versions != versions_previous:
         versions_previous = versions
-        if server:
-            assert server.returncode is None, 'gunicorn server command should still be running'
-            server.terminate()
+        run_remote(INSTALL_COMMAND.format(py_v=py_v, package=AIOH_VERSIONS[aiohttp_v]), check=True)
 
-        kill = SSH_COMMAND + (KILL_COMMAND,)
-        logger.info(f'running {kill}')
-        subprocess.run(kill)
-        time.sleep(1)
+    if server:
+        assert server.returncode is None, 'gunicorn server command should still be running'
+        server.terminate()
 
-        install = SSH_COMMAND + (INSTALL_COMMAND.format(py_v=py_v, package=AIOH_VERSIONS[aiohttp_v]),)
-        logger.info(f'running {install}')
-        subprocess.run(install, check=True)
+    run_remote('sudo killall gunicorn')
+    run_remote('sudo rm gunicorn.pid')
+    time.sleep(1)
+    # run_remote('sudo service postgresql restart')
+    # time.sleep(2)
 
-        run = SSH_COMMAND + (RUN_COMMAND.format(py_v=py_v),)
-        logger.info(f'starting {run}')
-        server = subprocess.Popen(run, env={'HOME': os.getenv('HOME'), 'PATH': os.getenv('PATH')})
+    run = SSH_COMMAND + (RUN_COMMAND.format(py_v=py_v),)
+    logger.info(f'starting %s', run)
+    server = subprocess.Popen(run, env={'HOME': os.getenv('HOME'), 'PATH': os.getenv('PATH')})
 
-        logger.info('gunicorn started, waiting for it to be ready...')
-        time.sleep(2)
-        subprocess.run(('stty', 'sane'))
+    logger.info('gunicorn started, waiting for it to be ready...')
+    time.sleep(2)
+    # prevent the vagrant/ssh messing up the tty
+    subprocess.run(('stty', 'sane'))
 
     logger.info('running wrk...')
     wrk_command = COMMAND_TEMPLATE.format(server=SERVER, concurrency=conc, duration=DURATION, threads=8, url=url_)
     p = subprocess.run(shlex.split(wrk_command), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    assert p.returncode == 0, 'bad exit code for wrk: {}'.format(p.returncode)
-    stdout = p.stdout.decode()
-    logger.info(stdout.strip('\n '))
+    stdoe = p.stdout.decode()
+    logger.info('wrk output: %s', stdoe.strip('\n '))
+    assert p.returncode == 0, f'bad exit code for wrk: {p.returncode}'
 
-    request_rate = float(re.search('Requests/sec: *([\d.]+)', stdout).groups()[0])
-    logger.info('request rate: {:0.2f}'.format(request_rate))
+    request_rate = float(re.search('Requests/sec: *([\d.]+)', stdoe).groups()[0])
+    logger.info('request rate: %0.2f', request_rate)
 
-    latency, s_ms = re.search(r'Latency *([\d.]+)(m?s)', stdout).groups()
+    latency, s_ms = re.search(r'Latency *([\d.]+)(m?s)', stdoe).groups()
     latency = float(latency)
     if s_ms == 's':
         latency *= 1000
-    logger.info('latency:      {:0.2f}'.format(latency))
+    logger.info('latency:      %0.2f', latency)
 
-    m = re.search('Non-2xx or 3xx responses: *(\d+)', stdout)
+    m = re.search('Non-2xx or 3xx responses: *(\d+)', stdoe)
     errors = int(m.groups()[0]) if m else 0
-    logger.info('errors:       {}'.format(errors))
+    m = re.search('Socket errors: *connect (\d+), read (\d+), write (\d+), timeout (\d+)', stdoe)
+    if m:
+        errors += sum(map(int, m.groups()))
+    logger.info('errors:       %d', errors)
 
     results.append({
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%s'),
