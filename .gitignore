@@ -6,3 +6,4 @@ gunicorn.pid
 gunicorn.log
 .idea/
 .vagrant/
+benchmarks.pem

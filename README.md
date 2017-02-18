@@ -6,15 +6,56 @@ Usage
 ```shell
 virtualenv -p `which python3.6` env
 . env/bin/activate
-pip install -r requirements.setup.txt
-export PGPASS=...
-export PGUSER=...
-./recreate_db.py
-tox
-./process.py
 ```
 
-## Results as of (16-02-17)
+**With vagrant:**
+
+```shell
+vagrant up
+vagrant ssh -c /vagrant/remote-setup/setup.sh
+python run.py
+python process.py
+```
+
+**With a remote machine:**
+
+(this assumes you have a pem file `benchmarks.pem` in the current directory.)
+
+```shell
+export REMOTE=true
+export SSH_ADDRESS="<user>@<host>"
+export HTTP_ADDRESS="http://<host>"
+scp -i benchmarks.pem -r app $SSH_ADDRESS:
+scp -i benchmarks.pem -r remote-setup $SSH_ADDRESS:
+scp -i benchmarks.pem gunicorn_conf.py $SSH_ADDRESS:
+ssh -i benchmarks.pem $SSH_ADDRESS remote-setup/setup.sh
+
+# everything should now be setup, you can run gunicorn
+ssh -i benchmarks.pem $SSH_ADDRESS "sudo ~/env35/bin/gunicorn app.gunicorn:app -c gunicorn_conf.py"
+# now open $HTTP_ADDRESS/plaintext in your browser and check the server is working.
+
+python run.py
+python process.py
+```
+
+## Results as of (2017-02-18) - remote server
+
+Tests were run between aws `t2.medium` in `eu-west` running the standard ubuntu 16.04 ami
+and my desktop in London with a 20Mb up/down dedicated EFM line.
+
+### Comparing aiohttp versions
+
+```
+TODO
+```
+
+### Comparing python versions
+
+```
+TODO
+```
+
+## Results as of (2017-02-16) - local server
 
 ### Comparing aiohttp versions
 

@@ -18,25 +18,30 @@ logger = logging.getLogger(__name__)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-VAGRANT = os.getenv('VAGRANT').upper() in {'1', 'TRUE'}
-if VAGRANT:
-    SSH_COMMAND = 'vagrant', 'ssh', '-c'
-    PREP_COMMAND = 'cd /vagrant'
-    SERVER = 'http://localhost:8080'
-else:
-    SSH_COMMAND = 'ssh', os.environ['SSH_ADDRESS']
-    PREP_COMMAND = 'cd ~'
+RUN_PREFIX = ''
+REMOTE = os.getenv('REMOTE').upper() in ('1', 'TRUE')
+if REMOTE:
+    SSH_COMMAND = 'ssh', '-i', 'benchmarks.pem', os.environ['SSH_ADDRESS']
     SERVER = os.environ['HTTP_ADDRESS']
+    print('Running on remote machine...')
+else:
+    SSH_COMMAND = 'vagrant', 'ssh', '-c'
+    SERVER = 'http://localhost:8080'
+    RUN_PREFIX = 'cd /vagrant && '
+    print('Running on vagrant...')
+
+print(f'ssh command: {SSH_COMMAND}')
+print(f'server:      {SERVER}')
 
 
-INSTALL_COMMAND = '~/env{py_v}/bin/pip install "{package}"'
-RUN_COMMAND = PREP_COMMAND + ' && ' + 'sudo ~/env{py_v}/bin/gunicorn app.gunicorn:app -c gunicorn_conf.py'
+INSTALL_COMMAND = '~/env3{py_v}/bin/pip install "{package}"'
+RUN_COMMAND = RUN_PREFIX + 'sudo ~/env3{py_v}/bin/gunicorn app.gunicorn:app -c gunicorn_conf.py'
 KILL_COMMAND = 'sudo killall gunicorn'
 
 AIOH_VERSIONS = {
-    12: 'aiohttp>=1.2,<1.3',
-    13: 'aiohttp>=1.3,<1.4',
-    20: 'https://github.com/KeepSafe/aiohttp/archive/9218c264d57c633bc21cb7a14cd7890a272d4e34.zip',
+    '1.2': 'aiohttp>=1.2,<1.3',
+    '1.3': 'aiohttp>=1.3,<1.4',
+    '2.0a': 'https://github.com/KeepSafe/aiohttp/archive/9218c264d57c633bc21cb7a14cd7890a272d4e34.zip',
 }
 
 
@@ -51,24 +56,24 @@ DURATION = 10
 results = []
 
 cases = itertools.product(
-    (35, 36),            # python version
-    (12, 13, 20),        # aiohttp
-    ('orm', 'raw'),      # connection type
-    ('/db', '/queries/{queries}', '/fortunes', '/updates/{queries}', '/json', '/plaintext'),  # url
-    (5, 10, 20),         # queries
-    (32, 64, 128, 256),  # concurrency
+    (5, 6),                  # python version
+    ('1.2', '1.3', '2.0a'),  # aiohttp
+    ('orm', 'raw'),          # connection type
+    ('/{c}/db', '/{c}/queries/{q}', '/{c}/fortunes', '/{c}/updates/{q}', '/json', '/plaintext'),  # url
+    (5, 10, 20),             # queries
+    (32, 64, 128, 256),      # concurrency
 )
-aio_v_previous = None
+versions_previous = None
 server = None
 for py_v, aiohttp_v, connection, url, queries, conc in cases:
 
-    if url in ('/json', '/plaintext'):
-        if connection == 'raw':
+    if '{c}' not in url:
+        if connection != 'orm':
             continue
         else:
-            connection = '---'
+            connection = '-'
 
-    if '{queries}' in url:
+    if '{q}' in url:
         if conc != 256:
             continue
     else:
@@ -77,30 +82,27 @@ for py_v, aiohttp_v, connection, url, queries, conc in cases:
         else:
             queries = '-'
 
-    url_ = url.format(queries=queries)
-    wrk_command = COMMAND_TEMPLATE.format(server=SERVER, concurrency=conc, duration=DURATION, threads=8, url=url_)
+    url_ = url.format(q=queries, c=connection)
 
     logger.info('===============================================================================')
-    logger.info('===============================================================================')
-    logger.info(f'== Python {py_v}, aiohttp {aiohttp_v}, conn {connection}, url {url_}, conc {conc}')
+    logger.info(f'==== Python 3.{py_v}, aiohttp {aiohttp_v}, conn {connection}, url {url_}, concurrency {conc}')
     logger.info('===============================================================================')
 
-    aio_v = f'{py_v}{aiohttp_v}'
-    if aio_v != aio_v_previous:
-        install = SSH_COMMAND + (INSTALL_COMMAND.format(py_v=py_v, package=AIOH_VERSIONS[aiohttp_v]),)
-        logger.info(f'running {install}')
-        subprocess.run(install, check=True)
-
+    versions = py_v, aiohttp_v
+    if versions != versions_previous:
+        versions_previous = versions
         if server:
-            assert server.returncode is None, 'gunicorn server should still be running'
+            assert server.returncode is None, 'gunicorn server command should still be running'
             server.terminate()
-            time.sleep(2)
 
-        # just in case
         kill = SSH_COMMAND + (KILL_COMMAND,)
         logger.info(f'running {kill}')
         subprocess.run(kill)
         time.sleep(1)
+
+        install = SSH_COMMAND + (INSTALL_COMMAND.format(py_v=py_v, package=AIOH_VERSIONS[aiohttp_v]),)
+        logger.info(f'running {install}')
+        subprocess.run(install, check=True)
 
         run = SSH_COMMAND + (RUN_COMMAND.format(py_v=py_v),)
         logger.info(f'starting {run}')
@@ -110,9 +112,8 @@ for py_v, aiohttp_v, connection, url, queries, conc in cases:
         time.sleep(2)
         subprocess.run(('stty', 'sane'))
 
-    aio_v_previous = aio_v
-
     logger.info('running wrk...')
+    wrk_command = COMMAND_TEMPLATE.format(server=SERVER, concurrency=conc, duration=DURATION, threads=8, url=url_)
     p = subprocess.run(shlex.split(wrk_command), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert p.returncode == 0, 'bad exit code for wrk: {}'.format(p.returncode)
     stdout = p.stdout.decode()
@@ -133,7 +134,7 @@ for py_v, aiohttp_v, connection, url, queries, conc in cases:
 
     results.append({
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%s'),
-        'python': py_v,
+        'python': f'3.{py_v}',
         'aiohttp': aiohttp_v,
         'concurrency': conc,
         'queries': queries,
