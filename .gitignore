@@ -5,3 +5,4 @@ env/
 gunicorn.pid
 gunicorn.log
 .idea/
+.vagrant/

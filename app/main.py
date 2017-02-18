@@ -33,7 +33,7 @@ def pg_dsn() -> str:
     """
     return str(URL(
         database='hello_world',
-        password=os.getenv('PGPASS', ''),
+        password=os.getenv('PGPASS', 'benchmarks'),
         host='localhost',
         port='5432',
         username=os.getenv('PGUSER', 'postgres'),

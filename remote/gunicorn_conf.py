@@ -6,7 +6,7 @@ if os.environ.get('TRAVIS') == 'true':
 else:
     workers = max(multiprocessing.cpu_count(), 2)
 
-bind = '0.0.0.0:8000'
+bind = '0.0.0.0:80'
 keepalive = 120
 errorlog = 'gunicorn.log'
 pidfile = 'gunicorn.pid'
