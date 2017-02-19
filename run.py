@@ -56,7 +56,6 @@ def run_remote(*commands, check=False):
 
 
 DURATION = 10
-# DURATION = 3
 results = []
 
 cases = itertools.product(
