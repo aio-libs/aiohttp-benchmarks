@@ -6,6 +6,7 @@
 ```shell
 virtualenv -p `which python3.6` env
 . env/bin/activate
+pip install requests
 ```
 
 **With vagrant:**

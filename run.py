@@ -10,6 +10,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import requests
+
 handler = logging.StreamHandler()
 handler.setLevel(logging.INFO)
 handler.setFormatter(logging.Formatter('%(asctime)s: %(message)s', datefmt='%H:%M:%S'))
@@ -60,7 +62,7 @@ results = []
 
 cases = itertools.product(
     (5, 6),                  # python version
-    ('1.2', '1.3', '2.0a'),  # aiohttp
+    ('1.2', '1.3', '2.0a'),  # aiohttp version
     ('orm', 'raw'),          # connection type
     ('/{c}/db', '/{c}/queries/{q}', '/{c}/fortunes', '/{c}/updates/{q}', '/json', '/plaintext'),  # url
     (5, 10, 20),             # queries
@@ -114,6 +116,13 @@ for py_v, aiohttp_v, connection, url, queries, conc in cases:
     time.sleep(2)
     # prevent the vagrant/ssh messing up the tty
     subprocess.run(('stty', 'sane'))
+
+    r = requests.get(f'{SERVER}/plaintext')
+    logger.info('plaintext response: "%s", status: %d, server: "%s"', r.text, r.status_code, r.headers['server'])
+    assert r.status_code == 200
+    server_python, server_aiohttp = re.search('Python/3\.(\d) *aiohttp/(\S{3})', r.headers['server']).groups()
+    assert py_v == int(server_python)
+    assert aiohttp_v[:3] == server_aiohttp
 
     logger.info('running wrk...')
     wrk_command = COMMAND_TEMPLATE.format(server=SERVER, concurrency=conc, duration=DURATION, threads=8, url=url_)
