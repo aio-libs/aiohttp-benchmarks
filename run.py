@@ -61,13 +61,12 @@ DURATION = 10
 results = []
 
 raw_cases = itertools.product(
-    # (5, 6),                  # python version
-    (6,),                  # python version
+    (6,),                         # python version
     tuple(AIOH_VERSIONS.keys()),  # aiohttp version
-    ('orm', 'raw'),          # connection type
+    ('orm', 'raw'),               # connection type
     ('/{c}/db', '/{c}/queries/{q}', '/{c}/fortunes', '/{c}/updates/{q}', '/json', '/plaintext'),  # url
-    (5, 10, 20),             # queries
-    (32, 64, 128, 256),      # concurrency
+    (5, 10, 20),                  # queries
+    (32, 64, 128, 256),           # concurrency
 )
 cases = []
 for py_v, aiohttp_v, connection, url, queries, conc in raw_cases:
@@ -117,17 +116,18 @@ for py_v, aiohttp_v, connection, url, queries, conc in cases:
         logger.info('server started, waiting for it to be ready...')
         # prevent the vagrant/ssh messing up the tty
         subprocess.run(('stty', 'sane'))
-        for i in range(20):
+        for i in range(40):
             time.sleep(0.1)
             try:
                 r = requests.get(f'{SERVER}/plaintext', timeout=1)
             except Exception:
                 continue
             if r.status_code == 200:
+                subprocess.run(('stty', 'sane'))
+                logger.info('server running after connection %d attempts', i)
                 break
 
         r = requests.get(f'{SERVER}/plaintext')
-        subprocess.run(('stty', 'sane'))
         logger.info('plaintext response: "%s", status: %d, server: "%s"', r.text, r.status_code, r.headers['server'])
         assert r.status_code == 200
         server_python, server_aiohttp = re.search('Python/3\.(\d) *aiohttp/(\S{3})', r.headers['server']).groups()
