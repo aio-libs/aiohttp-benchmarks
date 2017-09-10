@@ -28,11 +28,10 @@ export SSH_ADDRESS="<user>@<host>"
 export HTTP_ADDRESS="http://<host>"
 scp -i benchmarks.pem -r app $SSH_ADDRESS:
 scp -i benchmarks.pem -r remote-setup $SSH_ADDRESS:
-scp -i benchmarks.pem gunicorn_conf.py $SSH_ADDRESS:
 ssh -i benchmarks.pem $SSH_ADDRESS remote-setup/setup.sh
 
-# everything should now be setup, you can run gunicorn
-ssh -i benchmarks.pem $SSH_ADDRESS "sudo ~/env35/bin/gunicorn app.gunicorn:app -c gunicorn_conf.py"
+# everything should now be setup, you can run the server
+ssh -i benchmarks.pem $SSH_ADDRESS "sudo ~/env35/bin/python server.py"
 # now open $HTTP_ADDRESS/plaintext in your browser and check the server is working.
 
 python run.py

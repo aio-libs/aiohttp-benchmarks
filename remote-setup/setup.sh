@@ -27,3 +27,4 @@ sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD '$PGPASSWORD';"
 psql -h localhost -U postgres -c "DROP DATABASE IF EXISTS hello_world"
 psql -h localhost -U postgres -c "CREATE DATABASE hello_world"
 psql -h localhost -U postgres -d hello_world -f ${THIS_DIR}/data.sql
+cp ${THIS_DIR}/remote-setup/serve.py /home/ubuntu/

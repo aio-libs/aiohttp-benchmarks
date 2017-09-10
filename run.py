@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
-REMOTE = os.getenv('REMOTE').upper() in ('1', 'TRUE')
+REMOTE = os.getenv('REMOTE', 'FALSE').upper() in ('1', 'TRUE')
 if REMOTE:
     SSH_COMMAND = 'ssh', '-i', 'benchmarks.pem', os.environ['SSH_ADDRESS']
     SERVER = os.environ['HTTP_ADDRESS']
@@ -35,12 +35,12 @@ print(f'server:      {SERVER}')
 
 
 INSTALL_COMMAND = '~/env3{py_v}/bin/pip install "{package}"'
-RUN_COMMAND = 'sudo ~/env3{py_v}/bin/gunicorn app.gunicorn:app -c gunicorn_conf.py'
+RUN_COMMAND = 'sudo ~/env3{py_v}/bin/python serve.py'
 
 AIOH_VERSIONS = {
-    '1.2': 'aiohttp>=1.2,<1.3',
-    '1.3': 'aiohttp>=1.3,<1.4',
-    '2.0a': 'https://github.com/KeepSafe/aiohttp/archive/9218c264d57c633bc21cb7a14cd7890a272d4e34.zip',
+    '2.0': 'aiohttp>=2.0,<2.1',
+    '2.2': 'aiohttp>=2.2,<2.3',
+    '2.3a': 'https://github.com/aio-libs/aiohttp/archive/a60bfb4b4b3eb4d530c2871080201d700c6ed0f9.zip',
 }
 
 
@@ -60,17 +60,17 @@ def run_remote(*commands, check=False):
 DURATION = 10
 results = []
 
-cases = itertools.product(
-    (5, 6),                  # python version
-    ('1.2', '1.3', '2.0a'),  # aiohttp version
+raw_cases = itertools.product(
+    # (5, 6),                  # python version
+    (6,),                  # python version
+    tuple(AIOH_VERSIONS.keys()),  # aiohttp version
     ('orm', 'raw'),          # connection type
     ('/{c}/db', '/{c}/queries/{q}', '/{c}/fortunes', '/{c}/updates/{q}', '/json', '/plaintext'),  # url
     (5, 10, 20),             # queries
     (32, 64, 128, 256),      # concurrency
 )
-versions_previous = None
-server = None
-for py_v, aiohttp_v, connection, url, queries, conc in cases:
+cases = []
+for py_v, aiohttp_v, connection, url, queries, conc in raw_cases:
 
     if '{c}' not in url:
         if connection != 'orm':
@@ -87,10 +87,17 @@ for py_v, aiohttp_v, connection, url, queries, conc in cases:
         else:
             queries = '-'
 
-    url_ = url.format(q=queries, c=connection)
+    cases.append((py_v, aiohttp_v, connection, url, queries, conc))
 
+versions_previous = None
+case_count = len(cases)
+case_no = 0
+for py_v, aiohttp_v, connection, url, queries, conc in cases:
+    start = time.time()
+    case_no += 1
+    url_ = url.format(q=queries, c=connection)
     logger.info('===============================================================================')
-    logger.info(f'==== Python 3.{py_v}, aiohttp {aiohttp_v}, url {url_}, concurrency {conc}')
+    logger.info(f'   Python 3.{py_v}, aiohttp {aiohttp_v}, url {url_}, concurrency {conc}, case {case_no}/{case_count}')
     logger.info('===============================================================================')
 
     versions = py_v, aiohttp_v
@@ -98,13 +105,7 @@ for py_v, aiohttp_v, connection, url, queries, conc in cases:
         versions_previous = versions
         run_remote(INSTALL_COMMAND.format(py_v=py_v, package=AIOH_VERSIONS[aiohttp_v]), check=True)
 
-    if server:
-        assert server.returncode is None, 'gunicorn server command should still be running'
-        server.terminate()
-
-    run_remote('sudo killall gunicorn')
-    run_remote('sudo rm gunicorn.pid')
-    time.sleep(1)
+    run_remote('sudo killall python')
     # run_remote('sudo service postgresql restart')
     # time.sleep(2)
 
@@ -112,24 +113,36 @@ for py_v, aiohttp_v, connection, url, queries, conc in cases:
     logger.info(f'starting %s', run)
     server = subprocess.Popen(run, env={'HOME': os.getenv('HOME'), 'PATH': os.getenv('PATH')})
 
-    logger.info('gunicorn started, waiting for it to be ready...')
-    time.sleep(2)
-    # prevent the vagrant/ssh messing up the tty
-    subprocess.run(('stty', 'sane'))
+    try:
+        logger.info('server started, waiting for it to be ready...')
+        # prevent the vagrant/ssh messing up the tty
+        subprocess.run(('stty', 'sane'))
+        for i in range(20):
+            time.sleep(0.1)
+            try:
+                r = requests.get(f'{SERVER}/plaintext', timeout=1)
+            except Exception:
+                continue
+            if r.status_code == 200:
+                break
 
-    r = requests.get(f'{SERVER}/plaintext')
-    logger.info('plaintext response: "%s", status: %d, server: "%s"', r.text, r.status_code, r.headers['server'])
-    assert r.status_code == 200
-    server_python, server_aiohttp = re.search('Python/3\.(\d) *aiohttp/(\S{3})', r.headers['server']).groups()
-    assert py_v == int(server_python)
-    assert aiohttp_v[:3] == server_aiohttp
+        r = requests.get(f'{SERVER}/plaintext')
+        subprocess.run(('stty', 'sane'))
+        logger.info('plaintext response: "%s", status: %d, server: "%s"', r.text, r.status_code, r.headers['server'])
+        assert r.status_code == 200
+        server_python, server_aiohttp = re.search('Python/3\.(\d) *aiohttp/(\S{3})', r.headers['server']).groups()
+        assert py_v == int(server_python)
+        assert aiohttp_v[:3] == server_aiohttp
 
-    logger.info('running wrk...')
-    wrk_command = COMMAND_TEMPLATE.format(server=SERVER, concurrency=conc, duration=DURATION, threads=8, url=url_)
-    p = subprocess.run(shlex.split(wrk_command), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    stdoe = p.stdout.decode()
-    logger.info('wrk output: %s', stdoe.strip('\n '))
-    assert p.returncode == 0, f'bad exit code for wrk: {p.returncode}'
+        logger.info('running wrk...')
+        wrk_command = COMMAND_TEMPLATE.format(server=SERVER, concurrency=conc, duration=DURATION, threads=8, url=url_)
+        p = subprocess.run(shlex.split(wrk_command), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        stdoe = p.stdout.decode()
+        logger.info('wrk output: %s', stdoe.strip('\n '))
+        assert p.returncode == 0, f'bad exit code for wrk: {p.returncode}'
+    finally:
+        assert server.returncode is None, 'server command should still be running'
+        server.terminate()
 
     request_rate = float(re.search('Requests/sec: *([\d.]+)', stdoe).groups()[0])
     logger.info('request rate: %0.2f', request_rate)
@@ -146,6 +159,7 @@ for py_v, aiohttp_v, connection, url, queries, conc in cases:
     if m:
         errors += sum(map(int, m.groups()))
     logger.info('errors:       %d', errors)
+    logger.info('time taken:   %0.2fs', time.time() - start)
 
     results.append({
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%s'),
