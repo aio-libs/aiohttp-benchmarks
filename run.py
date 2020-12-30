@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python3
 import itertools
 import json
 import logging
@@ -38,9 +38,8 @@ INSTALL_COMMAND = '~/env3{py_v}/bin/pip install "{package}"'
 RUN_COMMAND = 'sudo ~/env3{py_v}/bin/python serve.py'
 
 AIOH_VERSIONS = {
-    '2.0': 'aiohttp>=2.0,<2.1',
-    '2.2': 'aiohttp>=2.2,<2.3',
-    '2.3a': 'https://github.com/aio-libs/aiohttp/archive/a60bfb4b4b3eb4d530c2871080201d700c6ed0f9.zip',
+    '3.6': 'aiohttp>=3.6,<3.7',
+    '3.7': 'aiohttp>=3.7,<3.8',
 }
 
 
@@ -61,7 +60,7 @@ DURATION = 10
 results = []
 
 raw_cases = itertools.product(
-    (6,),                         # python version
+    (7, 8, 9),                    # python version
     tuple(AIOH_VERSIONS.keys()),  # aiohttp version
     ('orm', 'raw'),               # connection type
     ('/{c}/db', '/{c}/queries/{q}', '/{c}/fortunes', '/{c}/updates/{q}', '/json', '/plaintext'),  # url

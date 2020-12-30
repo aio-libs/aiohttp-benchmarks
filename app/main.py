@@ -42,8 +42,8 @@ def pg_dsn() -> str:
 async def startup(app: web.Application):
     dsn = pg_dsn()
     min_size, max_size = 10, 20
-    app['pg_orm'] = await aiopg.sa.create_engine(dsn=dsn, minsize=min_size, maxsize=max_size, loop=app.loop)
-    app['pg_raw'] = await asyncpg.create_pool(dsn=dsn, min_size=min_size, max_size=max_size, loop=app.loop)
+    app['pg_orm'] = await aiopg.sa.create_engine(dsn=dsn, minsize=min_size, maxsize=max_size)
+    app['pg_raw'] = await asyncpg.create_pool(dsn=dsn, min_size=min_size, max_size=max_size)
 
 
 async def cleanup(app: web.Application):
@@ -67,8 +67,8 @@ def setup_routes(app):
     app.router.add_get('/raw/updates/{queries:.*}', updates_raw)
 
 
-def create_app(loop):
-    app = web.Application(loop=loop)
+def create_app():
+    app = web.Application()
 
     jinja2_loader = jinja2.FileSystemLoader(str(THIS_DIR / 'templates'))
     aiohttp_jinja2.setup(app, loader=jinja2_loader)
